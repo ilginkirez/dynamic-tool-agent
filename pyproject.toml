@@ -1,0 +1,21 @@
+[project]
+name = "dynamic-tool-agent"
+version = "0.1.0"
+description = "A dynamic tool agent"
+requires-python = ">=3.11"
+dependencies = [
+    "groq",
+    "langgraph",
+    "langchain-core",
+    "langchain-groq",
+    "chromadb",
+    "pydantic>=2.0",
+    "python-dotenv",
+    "sentence-transformers",
+    "rich",
+    "pytest",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
