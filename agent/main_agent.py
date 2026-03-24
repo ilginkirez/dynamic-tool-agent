@@ -27,6 +27,7 @@ from registry.tools import TOOL_EXECUTORS
 from search import ToolManager, VectorStore
 from registry import ToolRegistry
 from registry.tools import TOOL_LIST
+from logs.execution_logger import ExecutionLogger
 
 load_dotenv()
 
@@ -40,6 +41,7 @@ _vector_store = VectorStore()
 _vector_store.index_tools(_registry.to_index_documents())
 
 tool_manager = ToolManager(registry=_registry, vector_store=_vector_store)
+execution_logger = ExecutionLogger()
 
 _llm = ChatGroq(
     model=os.getenv("LLM_MODEL", "llama-3.3-70b-versatile"),
@@ -211,20 +213,27 @@ def select_and_prepare(state: AgentState) -> AgentState:
 def execute_tool(state: AgentState) -> AgentState:
     """
     Call the concrete executor for the selected tool.
-    Also updates TIG inertial statistics via tool_manager.
+    Also tracks latency and updates TIG inertial statistics via logger.
     """
+    trace_id = execution_logger.start_trace(state.get("user_input", ""))
+    
     selected = state["selected_tool"]
     if selected is None:
-        return {**state, "tool_result": None, "error": "NO_TOOL_SELECTED"}
+        state["error"] = "NO_TOOL_SELECTED"
+        execution_logger.finish_trace(trace_id, state)
+        return {**state, "tool_result": None}
 
     executor = TOOL_EXECUTORS.get(selected.name)
     if executor is None:
-        return {**state, "tool_result": None, "error": f"NO_EXECUTOR: {selected.name}"}
+        state["error"] = f"NO_EXECUTOR: {selected.name}"
+        execution_logger.finish_trace(trace_id, state)
+        return {**state, "tool_result": None}
 
     try:
         result = executor(state["tool_params"])
-        tool_manager.update_stats(selected.name, success=True)
-
+        state["error"] = None
+        state["tool_result"] = result
+        
         # Accumulate step result
         step_results = list(state.get("step_results", []))
         step_idx = state.get("current_step", 0)
@@ -236,21 +245,14 @@ def execute_tool(state: AgentState) -> AgentState:
             "tool": selected.name,
             "result": result,
         })
-
-        return {
-            **state,
-            "tool_result": result,
-            "step_results": step_results,
-            "error": None,
-        }
+        state["step_results"] = step_results
 
     except Exception as exc:  # noqa: BLE001
-        tool_manager.update_stats(selected.name, success=False)
-        return {
-            **state,
-            "tool_result": None,
-            "error": f"EXECUTION_ERROR: {exc}",
-        }
+        state["error"] = f"EXECUTION_ERROR: {exc}"
+        state["tool_result"] = None
+
+    execution_logger.finish_trace(trace_id, state, tool_manager)
+    return state
 
 
 # ── Conditional edge: step_check ─────────────────────────────────────────────
