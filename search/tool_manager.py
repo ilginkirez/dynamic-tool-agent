@@ -86,7 +86,9 @@ class ToolManager:
         for tool in self.registry.list_all():
             tool_tags_lower = [tag.lower() for tag in tool.tags]
             for token in query_tokens:
-                if any(token in tag for tag in tool_tags_lower):
+                # IMPORTANT: check 'tag in token' to support Turkish suffixes
+                # e.g., if tag is 'pdf', it should match token 'pdf'in' or 'pdfi'
+                if any(tag in token for tag in tool_tags_lower):
                     keyword_matches.add(tool.name)
                     break
 
@@ -103,7 +105,8 @@ class ToolManager:
             if hit.get("deprecated"):
                 continue
 
-            semantic_score = 1.0 - hit["distance"]
+            # Convert L2 distance (0-2) to cosine similarity (0-1)
+            semantic_score = 1.0 - (hit["distance"] / 2.0)
 
             # inertial boost (TIG)
             inertial = self._inertial_score(tool_name)
@@ -164,14 +167,18 @@ class ToolManager:
             selected_names: list[str] = json.loads(content)
 
             if not isinstance(selected_names, list):
-                return candidates  # fallback
+                return candidates  # fallback on bad format
 
             name_set = set(selected_names)
             reranked = [t for t in candidates if t.name in name_set]
-            return reranked if reranked else candidates  # fallback if LLM returns empty but we had hits
+            
+            # If the LLM explicitly returned an empty list, it means NO tool is suitable.
+            # We MUST return [] here to drop the false positives, rather than falling back
+            # to all candidates.
+            return reranked
 
         except (json.JSONDecodeError, Exception):
-            # Parse error or LLM call failure → return candidates as-is
+            # Parse error or LLM call failure → return None to signal failure or candidates
             return candidates
 
     def search_and_rerank(self, user_query: str) -> list[ToolSchema]:
@@ -189,24 +196,11 @@ class ToolManager:
     # ── TIG helpers ────────────────────────────────────────────
 
     def _inertial_score(self, tool_name: str) -> float:
-        """
-        Compute an inertial boost factor for *tool_name* from usage history.
-
-        * Never used → 0.5 (neutral)
-        * Few uses (< 5) → weighted toward neutral
-        * Many successful uses → up to 0.8 (never dominates semantics)
-        """
         stats = self._usage_stats.get(tool_name)
-        if stats is None or stats.get("total", 0) == 0:
-            return 0.5
-
-        total = stats["total"]
-        success_rate = stats["success"] / total
-
-        # Dampen confidence when sample size is small (< 5)
-        confidence = success_rate * min(total / 5, 1.0)
-
-        return 0.5 + (confidence * 0.3)
+        if not stats or stats.get("total", 0) == 0:
+            return 1.0
+        success_rate = stats["success"] / stats["total"]
+        return 0.7 + (success_rate * 0.3)  # minimum 0.7, maksimum 1.0
 
     def update_stats(self, tool_name: str, success: bool) -> None:
         """

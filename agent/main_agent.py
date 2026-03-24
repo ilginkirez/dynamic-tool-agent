@@ -104,14 +104,20 @@ def analyze_task(state: AgentState) -> AgentState:
     system = SystemMessage(content=(
         "Sen bir görev analiz uzmanısın. "
         "Tool isimlerini veya schemalarını bilmiyorsun. "
-        "Kullanıcı görevini bağımsız adımlara ayır."
+        "Kullanıcı görevini analiz et.\n\n"
+        "ÖNEMLİ KURALLAR:\n"
+        "1. Sadece somut bir araç gerektiren işlemler için adım oluştur "
+        "(hava durumu sorgulama, döviz çevirme, hesaplama, veritabanı, internet araması vb.).\n"
+        "2. Eğer kullanıcının isteği sohbet, motivasyon, hal hatır sorma gibi "
+        "bir işlem gerektirmeyen konuysa, SADECE boş liste döndür: {\"sub_tasks\": []}.\n"
+        "3. Gereksiz yere internet araması adımı üretme. Her adım somut bir kullanıcı talebi olmalı."
     ))
     human = HumanMessage(content=(
         f"Kullanıcı görevi: {state['user_input']}\n\n"
-        "Bu görevi çözmek için gereken adımları listele.\n"
-        "Her adım için tek cümlelik bir arama sorgusu yaz.\n"
-        "Eğer görev tek adımda çözülüyorsa tek eleman döndür.\n\n"
-        "SADECE geçerli JSON döndür (açıklama ekleme):\n"
+        "Bu görev somut bir araç gerektiriyor mu?\n"
+        "- Evetse: gereken adımları listele, her adım için tek cümlelik arama sorgusu yaz.\n"
+        "- Hayırsa (sohbet, motivasyon, selamlaşma): boş liste döndür: {\"sub_tasks\": []}\n\n"
+        "SADECE geçerli JSON döndür:\n"
         '{"sub_tasks": ['
         '{"step": 1, "description": "...", "search_query": "..."}'
         "]}"
@@ -122,10 +128,8 @@ def analyze_task(state: AgentState) -> AgentState:
     try:
         data = _extract_json(response.content)
         sub_tasks: list[dict] = data.get("sub_tasks", [])
-        if not sub_tasks:
-            raise ValueError("Empty sub_tasks list")
     except (ValueError, KeyError):
-        # Fallback: treat the whole task as one step
+        # Parse error fallback: treat the whole task as one step
         sub_tasks = [
             {
                 "step": 1,
@@ -133,6 +137,18 @@ def analyze_task(state: AgentState) -> AgentState:
                 "search_query": state["user_input"],
             }
         ]
+
+    # LLM explicitly returned empty sub_tasks → no tool needed
+    if not sub_tasks:
+        return {
+            **state,
+            "sub_tasks": [],
+            "current_step": 0,
+            "search_query": "",
+            "found_tools": [],
+            "step_results": [],
+            "error": "NO_TOOL_NEEDED",
+        }
 
     first_query = sub_tasks[0]["search_query"]
 
@@ -314,12 +330,15 @@ def format_response(state: AgentState) -> AgentState:
 # ── Node 6: handle_no_tool ────────────────────────────────────────────────────
 
 def handle_no_tool(state: AgentState) -> AgentState:
-    """Gracefully inform the user that no matching tool was found."""
-    return {
+    """Gracefully inform the user that no matching tool was found and log the interaction."""
+    trace_id = execution_logger.start_trace(state.get("user_input", ""))
+    new_state = {
         **state,
         "final_response": "Bu işlem için sistemde uygun bir araç bulunamadı.",
-        "error": "NO_TOOL_FOUND",
+        "error": state.get("error") or "NO_TOOL_FOUND",
     }
+    execution_logger.finish_trace(trace_id, new_state)
+    return new_state
 
 
 # ── Graph assembly ────────────────────────────────────────────────────────────
@@ -338,7 +357,16 @@ def _build_graph() -> StateGraph:
 
     # Edges
     g.add_edge(START, "analyze_task")
-    g.add_edge("analyze_task", "search_tools")
+
+    # After analysis: if no tool needed → handle directly, else → search
+    g.add_conditional_edges(
+        "analyze_task",
+        lambda s: "no_tool" if s.get("error") == "NO_TOOL_NEEDED" else "search",
+        {
+            "no_tool": "handle_no_tool",
+            "search": "search_tools",
+        },
+    )
 
     g.add_conditional_edges(
         "search_tools",

@@ -16,7 +16,7 @@ SCHEMA = ToolSchema(
         "times. Perfect for productivity tracking, cooking, meetings, and reminders."
     ),
     category="utility",
-    tags=["timer", "zamanlayıcı", "alarm", "countdown", "reminder", "pomodoro", "süre"],
+    tags=["timer", "zamanlayıcı", "alarm", "countdown", "reminder", "pomodoro", "süre", "dakika", "hatırlat"],
     parameters=[
         ToolParameter(name="action", type="string", description="Action: 'set', 'list', or 'cancel'"),
         ToolParameter(name="label", type="string", description="Timer label", required=False),

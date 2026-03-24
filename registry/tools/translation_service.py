@@ -14,7 +14,7 @@ SCHEMA = ToolSchema(
         "Ideal for multilingual communication, content localization, and language learning."
     ),
     category="utility",
-    tags=["translate", "çeviri", "language", "dil", "localization", "multilingual"],
+    tags=["translate", "translation", "çeviri", "çevirme", "çevir", "language", "dil", "localization", "multilingual"],
     parameters=[
         ToolParameter(name="text", type="string", description="Text to translate"),
         ToolParameter(name="source_language", type="string", description="Source language code (e.g. 'en', 'tr')", required=False),

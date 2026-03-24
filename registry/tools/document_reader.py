@@ -16,7 +16,7 @@ SCHEMA = ToolSchema(
         "content curation, and automated information gathering."
     ),
     category="utility",
-    tags=["document", "belge", "reader", "url", "pdf", "read", "extract", "okuma"],
+    tags=["document", "belge", "reader", "url", "pdf", "read", "extract", "okuma", "özetle", "makale"],
     parameters=[
         ToolParameter(name="url", type="string", description="URL of the document to read"),
         ToolParameter(name="summarize", type="boolean", description="Whether to return a summary", required=False),
