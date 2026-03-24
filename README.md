@@ -1,4 +1,4 @@
-# Dynamic Tool Agent (Zero-Knowledge LangGraph)
+# Tool Agent (Zero-Knowledge LangGraph)
 
 Bu proje, **LangGraph** tabanlı, tamamen modüler ve dinamik bir **Zero-Knowledge** araç kullanım ajanıdır. Ajan, başlangıçta  hiçbir aracın adını veya yeteneğini bilmez. Gelen kullanıcı isteklerini analiz eder, gerekli olan araçları **vektör veritabanında (ChromaDB)** semantik arama yaparak bulur ve sadece ihtiyaç duyulan aracın şemasını o an  LLM'e enjekte eder.
 
